@@ -1,0 +1,48 @@
+{
+    "name": "BioSleepX_Seq",
+    "n_gpu": 1,
+    "arch": {
+        "type": "BioSleepXSeq",
+        "args": {
+            "seq_length": 5
+        }
+    },
+    "data_loader": {
+        "type": "data_generator_np_sequence",
+        "args":{
+            "batch_size": 32,
+            "num_folds": 10,
+            "seq_length": 5,
+            "stride": 1
+        }
+    },
+    "optimizer": {
+        "type": "Adam",
+        "args":{
+            "lr": 0.0005,
+            "weight_decay": 0.0005,
+            "amsgrad": true
+        }
+    },
+    "lr_scheduler": {
+        "type": "CosineAnnealingLR",
+        "args": {
+            "T_max": 100,
+            "eta_min": 1e-6
+        }
+    },
+    "loss": "CrossEntropyLoss",
+    "metrics": [
+        "accuracy",
+        "f1",
+        "kappa",
+        "transition_accuracy"
+    ],
+    "trainer": {
+        "epochs": 100,
+        "save_dir": "saved/sequential_model/",
+        "save_period": 10,
+        "verbosity": 2,
+        "monitor": "min val_loss"
+    }
+} 

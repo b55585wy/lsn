@@ -1,0 +1,61 @@
+<svg width="900" height="500" viewBox="0 0 900 500" xmlns="http://www.w3.org/2000/svg">
+  <style>
+    .title { font: bold 28px sans-serif; fill: #222; }
+    .subtitle { font: 18px sans-serif; fill: #444; }
+    .layer { font: 16px sans-serif; fill: #222; }
+    .arrow { stroke: #222; stroke-width: 2; marker-end: url(#arrowhead); }
+    .block { fill: #e3eafc; stroke: #4a90e2; stroke-width: 2; rx: 12; }
+    .block2 { fill: #fce3e3; stroke: #e24a4a; stroke-width: 2; rx: 12; }
+    .block3 { fill: #e3fce6; stroke: #4ae26e; stroke-width: 2; rx: 12; }
+    .block4 { fill: #f9fbe7; stroke: #cddc39; stroke-width: 2; rx: 12; }
+  </style>
+  <defs>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#222" />
+    </marker>
+  </defs>
+  <text x="450" y="40" text-anchor="middle" class="title">AttnSleep 模型结构图</text>
+  <text x="450" y="70" text-anchor="middle" class="subtitle">适用于顶刊发表的高质量结构示意</text>
+
+  <!-- Input -->
+  <rect x="60" y="180" width="120" height="60" class="block"/>
+  <text x="120" y="215" text-anchor="middle" class="layer">输入 EEG/多通道信号</text>
+
+  <!-- MRCNN -->
+  <rect x="220" y="150" width="180" height="120" class="block2"/>
+  <text x="310" y="180" text-anchor="middle" class="layer">多尺度卷积特征提取 (MRCNN)</text>
+  <text x="310" y="210" text-anchor="middle" class="layer" font-size="14">Conv1D + BN + GELU + Pooling</text>
+  <text x="310" y="235" text-anchor="middle" class="layer" font-size="14">SEBlock 残差连接</text>
+
+  <!-- TCE (Transformer Encoder) -->
+  <rect x="440" y="130" width="200" height="160" class="block3"/>
+  <text x="540" y="170" text-anchor="middle" class="layer">Transformer 编码器 (TCE)</text>
+  <text x="540" y="200" text-anchor="middle" class="layer" font-size="14">多头注意力 (MultiHeadedAttention)</text>
+  <text x="540" y="225" text-anchor="middle" class="layer" font-size="14">残差连接 + LayerNorm</text>
+  <text x="540" y="250" text-anchor="middle" class="layer" font-size="14">前馈网络 (FeedForward)</text>
+
+  <!-- FC Layer -->
+  <rect x="680" y="180" width="120" height="60" class="block4"/>
+  <text x="740" y="215" text-anchor="middle" class="layer">全连接分类层</text>
+
+  <!-- Output -->
+  <rect x="830" y="180" width="60" height="60" class="block"/>
+  <text x="860" y="215" text-anchor="middle" class="layer">输出</text>
+  <text x="860" y="235" text-anchor="middle" class="layer" font-size="14">睡眠分期</text>
+
+  <!-- Arrows -->
+  <line x1="180" y1="210" x2="220" y2="210" class="arrow"/>
+  <line x1="400" y1="210" x2="440" y2="210" class="arrow"/>
+  <line x1="640" y1="210" x2="680" y2="210" class="arrow"/>
+  <line x1="800" y1="210" x2="830" y2="210" class="arrow"/>
+
+  <!-- Legend -->
+  <rect x="60" y="320" width="20" height="20" class="block"/>
+  <text x="90" y="335" class="layer" font-size="14">输入/输出</text>
+  <rect x="180" y="320" width="20" height="20" class="block2"/>
+  <text x="210" y="335" class="layer" font-size="14">卷积特征提取</text>
+  <rect x="320" y="320" width="20" height="20" class="block3"/>
+  <text x="350" y="335" class="layer" font-size="14">Transformer 编码器</text>
+  <rect x="460" y="320" width="20" height="20" class="block4"/>
+  <text x="490" y="335" class="layer" font-size="14">分类层</text>
+</svg>
