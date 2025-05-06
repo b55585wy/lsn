@@ -1,6 +1,6 @@
 {
   "name": "BioSleepX_Seq_FocalLoss",
-  "n_gpu": 1,
+  "n_gpu": 8,
   "arch": {
       "type": "BioSleepXSeq",
       "args": {
@@ -10,7 +10,7 @@
   "data_loader": {
       "type": "data_generator_np_sequence",
       "args":{
-          "batch_size": 128,
+          "batch_size": 32,
           "num_folds": 10,
           "seq_length": 5,
           "stride": 1

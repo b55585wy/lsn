@@ -140,8 +140,8 @@ if __name__ == '__main__':
                       help='config file path (default: None)')
     parser.add_argument('-r', '--resume', default=None, type=str,
                       help='path to latest checkpoint (default: None)')
-    parser.add_argument('-d', '--device', default="0", type=str,
-                      help='indices of GPUs to enable (default: all)')
+    parser.add_argument('-d', '--device', default=None, type=str,
+                      help='indices of GPUs to enable (e.g., "0,1,2"). If not set, uses CUDA_VISIBLE_DEVICES or all available.')
     parser.add_argument('-f', '--fold_id', type=str, required=True,
                       help='fold_id')
     parser.add_argument('-da', '--np_data_dir', type=str, required=True,
@@ -152,6 +152,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     fold_id = int(args.fold_id)
     
+    # Only set CUDA_VISIBLE_DEVICES if -d or --device is explicitly passed
     if args.device is not None:
         os.environ["CUDA_VISIBLE_DEVICES"] = args.device
     
