@@ -1,49 +1,55 @@
 {
-    "name": "Exp1",
-    "n_gpu": 1,
-    "arch": {
-        "type": "BioSleepX",
-        "args": {
-        }
-    },
-    "data_loader": {
-        "args":{
-            "batch_size": 64,
-            "num_folds": 10
-        }
-    },
-    "optimizer": {
-        "type": "Adam",
-        "args":{
-            "lr": 0.001,
-            "weight_decay": 0.001,
-            "amsgrad": true
-        }
-    },
-    "lr_scheduler": {
-        "type": "CosineAnnealingLR",
-        "args": {
-            "T_max": 100,
-            "eta_min": 1e-6
-        }
-    },
-    "loss": "focal_loss",
-    "loss_args": {
-        "gamma": 3.0,
-        "label_smoothing": 0.1,
-        "n1_weight_multiplier": 2.5,
-        "n1_class_idx": 1
-    },
-    "metrics": [
-        "accuracy",
-        "f1",
-        "kappa"
-    ],
-    "trainer": {
-        "epochs": 100,
-        "save_dir": "saved/focal_loss",
-        "save_period": 30,
-        "verbosity": 2,
-        "monitor": "min val_loss"
-    }
+  "name": "BioSleepX_Seq_FocalLoss",
+  "n_gpu": 1,
+  "arch": {
+      "type": "BioSleepXSeq",
+      "args": {
+          "seq_length": 5
+      }
+  },
+  "data_loader": {
+      "type": "data_generator_np_sequence",
+      "args":{
+          "batch_size": 128,
+          "num_folds": 10,
+          "seq_length": 5,
+          "stride": 1
+      }
+  },
+  "optimizer": {
+      "type": "Adam",
+      "args":{
+          "lr": 0.001,
+          "weight_decay": 0.001,
+          "amsgrad": true
+      }
+  },
+  "lr_scheduler": {
+      "type": "CosineAnnealingLR",
+      "args": {
+          "T_max": 100,
+          "eta_min": 1e-6
+      }
+  },
+  "loss": "focal_loss",
+  "loss_args": {
+      "gamma": 3.0,
+      "label_smoothing": 0.1,
+      "n1_weight_multiplier": 2.5,
+      "n1_class_idx": 1
+  },
+  "metrics": [
+      "accuracy",
+      "f1",
+      "kappa",
+      "transition_accuracy"
+  ],
+  "trainer": {
+      "epochs": 100,
+      "save_dir": "saved/focal_loss_seq",
+      "save_period": 30,
+      "verbosity": 2,
+      "monitor": "min val_loss",
+      "early_stop": 10
+  }
 }
