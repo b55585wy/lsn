@@ -2,8 +2,9 @@ import torch
 import torch.nn as nn
 import numpy as np
 import time
-from sklearn.metrics import f1_score, accuracy_score, classification_report, confusion_matrix
+from sklearn.metrics import f1_score, accuracy_score, classification_report, confusion_matrix, cohen_kappa_score
 from model.model import BioSleepX, BioSleepXSeq
+from model.metric import kappa
 import json
 import os
 from thop import profile
@@ -17,7 +18,7 @@ def count_parameters(model):
     """计算模型参数量"""
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
-def evaluate_model(model_path, data_dir, device='cuda', is_sequence=True, seq_length=5, stride=1):
+def evaluate_model(model_path, data_dir, device='cuda', is_sequence=True, seq_length=5, stride=1, fold_id=None):
     """
     评估模型性能
     
@@ -28,6 +29,7 @@ def evaluate_model(model_path, data_dir, device='cuda', is_sequence=True, seq_le
         is_sequence: 是否为序列模型
         seq_length: 序列长度
         stride: 序列步长
+        fold_id: 当前评估的折数
     """
     # 加载检查点
     checkpoint = torch.load(model_path, map_location=device)
@@ -106,17 +108,36 @@ def evaluate_model(model_path, data_dir, device='cuda', is_sequence=True, seq_le
     predictions = np.array(predictions)
     targets = np.array(targets)
     
+    # 定义所有可能的类别标签
+    all_labels = list(range(5))  # 假设有5类: W, N1, N2, N3, REM
+    
     # 计算各项指标
     accuracy = accuracy_score(targets, predictions)
-    f1_macro = f1_score(targets, predictions, average='macro')
-    f1_per_class = f1_score(targets, predictions, average=None)
-    f1_weighted = f1_score(targets, predictions, average='weighted')
+    f1_macro = f1_score(targets, predictions, average='macro', labels=all_labels)
+    f1_per_class = f1_score(targets, predictions, average=None, labels=all_labels)
+    f1_weighted = f1_score(targets, predictions, average='weighted', labels=all_labels)
+    
+    # 计算 Kappa 系数 - 增加错误处理
+    try:
+        # 检查是否只有一个类别
+        if len(np.unique(targets)) <= 1 or len(np.unique(predictions)) <= 1:
+            print("警告: 只有一个类别，Kappa 系数设为 0")
+            kappa_score = 0.0
+        else:
+            kappa_score = cohen_kappa_score(targets, predictions, labels=all_labels)
+            # 检查 NaN 值
+            if np.isnan(kappa_score):
+                print("警告: Kappa 系数计算为 NaN，设为 0")
+                kappa_score = 0.0
+    except Exception as e:
+        print(f"计算 Kappa 系数时出错: {e}，设为 0")
+        kappa_score = 0.0
     
     # 生成详细的分类报告
-    class_report = classification_report(targets, predictions, output_dict=True)
+    class_report = classification_report(targets, predictions, labels=all_labels, output_dict=True)
     
     # 计算混淆矩阵
-    cm = confusion_matrix(targets, predictions)
+    cm = confusion_matrix(targets, predictions, labels=all_labels)
     
     # 整理结果
     results = {
@@ -127,6 +148,7 @@ def evaluate_model(model_path, data_dir, device='cuda', is_sequence=True, seq_le
             "模型权重路径": model_path,
             "测试数据路径": data_dir,
             "测试文件数量": len(test_files),
+            "评估折数": fold_id,
             "模型配置": {
                 "use_msea": False,
                 "use_gabor": False,
@@ -139,6 +161,7 @@ def evaluate_model(model_path, data_dir, device='cuda', is_sequence=True, seq_le
             "准确率": float(accuracy),
             "宏平均F1分数": float(f1_macro),
             "加权平均F1分数": float(f1_weighted),
+            "Kappa系数": float(kappa_score),
             "每类F1分数": {f"类别{i}": float(score) for i, score in enumerate(f1_per_class)},
             "平均推理时间(ms)": float(inference_time * 1000)
         },
@@ -154,13 +177,19 @@ def evaluate_model(model_path, data_dir, device='cuda', is_sequence=True, seq_le
     
     # 打印主要结果
     print("\n=== 模型评估结果 ===")
+    if fold_id is not None:
+        print(f"评估折数: Fold {fold_id}")
     print(f"模型名称: {model_name}")
+    print(f"模型路径: {model_path}")
+    print(f"测试数据路径: {data_dir}")
+    print(f"测试文件数量: {len(test_files)}")
     print(f"模型参数量: {total_params:,}")
     print(f"FLOPs: {flops:,}")
     print(f"平均推理时间: {inference_time*1000:.2f}ms")
     print(f"\n准确率: {accuracy:.4f}")
     print(f"宏平均F1分数: {f1_macro:.4f}")
     print(f"加权平均F1分数: {f1_weighted:.4f}")
+    print(f"Kappa系数: {kappa_score:.4f}")
     print("\n每类F1分数:")
     for i, score in enumerate(f1_per_class):
         class_name = ['W', 'N1', 'N2', 'N3', 'REM'][i]
@@ -178,6 +207,7 @@ if __name__ == "__main__":
     parser.add_argument('--sequence', action='store_true', help='是否为序列模型')
     parser.add_argument('--seq_length', type=int, default=5, help='序列长度')
     parser.add_argument('--stride', type=int, default=1, help='序列步长')
+    parser.add_argument('--fold_id', type=int, help='评估的折数ID')
     args = parser.parse_args()
     
     DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -189,5 +219,6 @@ if __name__ == "__main__":
         DEVICE,
         is_sequence=args.sequence,
         seq_length=args.seq_length,
-        stride=args.stride
+        stride=args.stride,
+        fold_id=args.fold_id
     ) 

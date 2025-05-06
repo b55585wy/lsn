@@ -190,7 +190,7 @@ class Trainer(BaseTrainer):
             true = all_targets.cpu().numpy()
         
         # 计算每个类别的F1分数
-        f1_per_class = f1_score(true, pred, average=None)
+        f1_per_class = f1_score(true, pred, average=None, labels=list(range(5)))
         
         # 创建详细的训练日志
         train_log = self.train_metrics.result()
@@ -359,7 +359,7 @@ class Trainer(BaseTrainer):
             true = all_targets.cpu().numpy()
         
         # 计算每个类别的F1分数
-        f1_per_class = f1_score(true, pred, average=None)
+        f1_per_class = f1_score(true, pred, average=None, labels=list(range(5)))
         
         # 创建详细的验证日志
         val_log = self.valid_metrics.result()
@@ -369,7 +369,7 @@ class Trainer(BaseTrainer):
             val_log[f'f1_class_{i}'] = f1_val
             
         # 计算并显示混淆矩阵
-        cm = confusion_matrix(true, pred)
+        cm = confusion_matrix(true, pred, labels=list(range(5)))
         self.logger.info(f'验证集混淆矩阵:\n{cm}') # 添加混淆矩阵日志
         # 可选：将混淆矩阵添加到日志字典中
         # val_log['confusion_matrix'] = cm.tolist()
@@ -511,7 +511,7 @@ class Trainer(BaseTrainer):
             true = all_targets.cpu().numpy()
         
         # 计算每个类别的F1分数
-        f1_per_class = f1_score(true, pred, average=None)
+        f1_per_class = f1_score(true, pred, average=None, labels=list(range(5)))
         
         # 创建详细的测试日志
         test_log = self.test_metrics.result()
@@ -521,7 +521,7 @@ class Trainer(BaseTrainer):
             test_log[f'f1_class_{i}'] = f1_val
             
         # 计算并显示混淆矩阵
-        cm = confusion_matrix(true, pred)
+        cm = confusion_matrix(true, pred, labels=list(range(5)))
         self.logger.info(f'测试集混淆矩阵:\n{cm}') # 添加混淆矩阵日志
         # 可选：将混淆矩阵添加到日志字典中
         # test_log['confusion_matrix'] = cm.tolist()
