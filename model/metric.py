@@ -55,32 +55,29 @@ def kappa(outputs, targets):
     preds = torch.argmax(outputs, dim=1).cpu().numpy()
     targets = targets.cpu().numpy()
     
-    # 获取实际存在的类别标签
-    unique_labels = np.unique(np.concatenate((preds, targets)))
-    n_classes = len(unique_labels)
+    # 检查是否所有的预测和目标都只有一个类别
+    unique_preds = np.unique(preds)
+    unique_targets = np.unique(targets)
     
-    # 创建混淆矩阵 - 使用实际存在的标签
-    cm = confusion_matrix(targets, preds, labels=unique_labels)
+    # 如果预测或目标只有一个类别，则可能会导致除以零
+    if len(unique_preds) <= 1 or len(unique_targets) <= 1:
+        print("警告: 计算Kappa系数时检测到单一类别数据，跳过Kappa计算")
+        return None  # 返回None表示没有有效的Kappa值
     
-    # 计算观察到的准确率
-    n_samples = len(preds)
-    observed_accuracy = np.trace(cm) / n_samples
+    # 确保使用所有可能的类别标签（假设是5类睡眠阶段分类）
+    all_labels = list(range(outputs.size(1)))  # 根据输出张量的类别数获取所有可能的标签
     
-    # 计算期望的准确率
-    expected_accuracy = 0
-    for i in range(n_classes):
-        expected_accuracy += (np.sum(cm[i, :]) * np.sum(cm[:, i])) 
-    
-    expected_accuracy = expected_accuracy / (n_samples * n_samples)
-    
-    # 防止除以零
-    if expected_accuracy >= 1.0 or expected_accuracy == 0.0:
-        return 1.0 if observed_accuracy == 1.0 else 0.0
-        
-    # 计算Kappa
-    kappa = (observed_accuracy - expected_accuracy) / (1 - expected_accuracy)
-    
-    return kappa
+    try:
+        # 使用指定的所有标签计算kappa，即使数据中没有出现某些标签
+        kappa_value = cohen_kappa_score(targets, preds, labels=all_labels)
+        if np.isnan(kappa_value):
+            print("警告: Kappa系数计算为NaN，跳过Kappa输出")
+            return None
+        return kappa_value
+    except Exception as e:
+        # 发生错误时回退到直接计算
+        print(f"计算Kappa系数时出错: {e}，跳过Kappa输出")
+        return None
 
 
 def per_class_accuracy(output, target):
@@ -150,14 +147,52 @@ def per_class_metrics(outputs, targets):
     preds = torch.argmax(outputs, dim=1).cpu().numpy()
     targets = targets.cpu().numpy()
     
-    # 计算混淆矩阵
-    cm = confusion_matrix(targets, preds)
+    # 确保使用所有可能的类别标签
+    all_labels = list(range(outputs.size(1)))  # 根据输出张量的类别数获取所有可能的标签
     
-    # 每类详细指标
-    report = classification_report(targets, preds, output_dict=True)
+    # 处理单一类别的情况
+    unique_labels = np.unique(np.concatenate([preds, targets]))
+    if len(unique_labels) <= 1:
+        print("警告: 只检测到一个类别，某些指标可能不准确")
+        # 对于单一类别，创建一个简单的混淆矩阵
+        cm = np.array([[len(preds)]])
+        
+        # 创建一个简化的报告
+        report = {
+            str(unique_labels[0]): {
+                'precision': 1.0,
+                'recall': 1.0,
+                'f1-score': 1.0,
+                'support': len(preds)
+            },
+            'accuracy': 1.0,
+            'macro avg': {
+                'precision': 1.0,
+                'recall': 1.0,
+                'f1-score': 1.0,
+                'support': len(preds)
+            },
+            'weighted avg': {
+                'precision': 1.0,
+                'recall': 1.0,
+                'f1-score': 1.0,
+                'support': len(preds)
+            }
+        }
+        
+        # 创建F1分数
+        per_class_f1 = np.ones(len(all_labels))
+        
+        return cm, report, per_class_f1
     
-    # 每类F1分数
-    per_class_f1 = f1_score(targets, preds, average=None)
+    # 计算混淆矩阵，确保指定所有可能的标签
+    cm = confusion_matrix(targets, preds, labels=all_labels)
+    
+    # 每类详细指标，确保指定所有可能的标签
+    report = classification_report(targets, preds, labels=all_labels, output_dict=True)
+    
+    # 每类F1分数，确保指定所有可能的标签
+    per_class_f1 = f1_score(targets, preds, average=None, labels=all_labels)
     
     return cm, report, per_class_f1
 
@@ -235,27 +270,30 @@ def evaluate_model(model, data_loader, device):
                 all_outputs.append(output)
                 all_targets.append(target)
             else:
-                data, target = batch
-                data = data.to(device)
-                target = target.to(device)
-                output = model(data)
-                all_outputs.append(output)
-                all_targets.append(target)
+                raise ValueError("不支持的数据格式")
     
-    # 合并所有批次的结果
+    # 合并所有输出和目标
     all_outputs = torch.cat(all_outputs, dim=0)
     all_targets = torch.cat(all_targets, dim=0)
     
-    # 计算详细指标
-    cm, report, per_class_f1 = per_class_metrics(all_outputs, all_targets)
+    # 计算准确率
     acc = accuracy(all_outputs, all_targets)
+    
+    # 计算F1分数
     f1_score_val = f1(all_outputs, all_targets)
+    
+    # 计算Kappa系数
     kappa_score = kappa(all_outputs, all_targets)
     
-    # 计算转换准确率（如果适用）
-    trans_acc = 0.0
-    if len(all_outputs.shape) == 3:
-        trans_acc = transition_accuracy(all_outputs, all_targets)
+    # 如果kappa_score为None（单一类别情况），设置为0.0
+    if kappa_score is None:
+        kappa_score = 0.0
+    
+    # 计算睡眠转换准确率
+    trans_acc = transition_accuracy(all_outputs, all_targets)
+    
+    # 计算混淆矩阵和每类指标
+    cm, report, per_class_f1 = per_class_metrics(all_outputs, all_targets)
     
     return {
         'accuracy': acc,

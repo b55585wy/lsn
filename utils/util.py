@@ -21,14 +21,59 @@ def load_folds_data_shhs(np_data_path, n_folds):
         folds_data[fold_id] = [training_files, subject_files]
     return folds_data
 
+def load_folds_data_correctly(np_data_path, n_folds):
+    files = sorted(glob(os.path.join(np_data_path, "*.npz")))
+    if "78" in np_data_path:
+        r_p_path = r"utils/r_permute_78.npy"
+    else:
+        r_p_path = r"utils/r_permute_20.npy"
+
+    if os.path.exists(r_p_path):
+        r_permute = np.load(r_p_path)
+    else:
+        print("============== ERROR =================")
+
+    # 按主体组织文件
+    files_dict = dict()
+    for i in files:
+        file_name = os.path.split(i)[-1] 
+        file_num = file_name[3:5]
+        if file_num not in files_dict:
+            files_dict[file_num] = [i]
+        else:
+            files_dict[file_num].append(i)
+            
+    # 转换为列表并按r_permute打乱主体顺序
+    files_pairs = []
+    for key in files_dict:
+        files_pairs.append(files_dict[key])
+    files_pairs = np.array(files_pairs, dtype=object)
+    files_pairs = files_pairs[r_permute]
+
+    # 将主体分成n_folds组
+    train_files = np.array_split(files_pairs, n_folds)
+    folds_data = {}
+    
+    for fold_id in range(n_folds):
+        # 当前折的主体文件作为验证集
+        subject_files = train_files[fold_id]
+        subject_files = [item for sublist in subject_files for item in sublist]
+        
+        # 所有其他主体文件作为训练集
+        files_pairs2 = [item for sublist in files_pairs for item in sublist]
+        training_files = list(set(files_pairs2) - set(subject_files))
+        
+        folds_data[fold_id] = [training_files, subject_files]
+        
+    return folds_data
 def load_folds_data(np_data_path, n_folds, train_ratio=0.8, val_ratio=0.2):
     """
-    按比例划分数据集并进行K折交叉验证
+    按受试者级别划分数据集并进行K折交叉验证，避免数据泄露
     Args:
         np_data_path: 数据目录路径
         n_folds: 交叉验证折数
-        train_ratio: 训练集比例（包含验证集）
-        val_ratio: 验证集比例（从训练集中划分）
+        train_ratio: 训练+验证集比例（占总数据的比例）
+        val_ratio: 验证集比例（保留兼容性，不使用）
     Returns:
         folds_data: 包含每折训练集和验证集的字典
         test_files: 测试集文件列表
@@ -44,7 +89,7 @@ def load_folds_data(np_data_path, n_folds, train_ratio=0.8, val_ratio=0.2):
     else:
         print("============== ERROR =================")
 
-    # 按subject组织文件
+    # 按主体组织文件
     files_dict = dict()
     for i in files:
         file_name = os.path.split(i)[-1] 
@@ -53,44 +98,52 @@ def load_folds_data(np_data_path, n_folds, train_ratio=0.8, val_ratio=0.2):
             files_dict[file_num] = [i]
         else:
             files_dict[file_num].append(i)
-    
-    # 转换为列表并随机打乱
+            
+    # 转换为列表并按r_permute打乱主体顺序
     files_pairs = []
     for key in files_dict:
         files_pairs.append(files_dict[key])
-    
-    # 使用dtype=object来避免警告
     files_pairs = np.array(files_pairs, dtype=object)
     files_pairs = files_pairs[r_permute]
-
-    # 将所有文件展平为一个列表
-    all_files = [item for sublist in files_pairs for item in sublist]
     
-    # 按比例划分训练集和测试集
-    train_val_size = int(len(all_files) * train_ratio)
-    train_val_files = all_files[:train_val_size]
-    test_files = all_files[train_val_size:]  # 测试集
+    # 按受试者级别分割训练+验证集和测试集
+    train_val_size = int(len(files_pairs) * train_ratio)
+    train_val_subjects = files_pairs[:train_val_size]
+    test_subjects = files_pairs[train_val_size:]
     
-    # 将训练验证数据分成K折
+    # 将测试集受试者的文件展平为列表
+    test_files = []
+    for subject_files in test_subjects:
+        test_files.extend(subject_files)
+    
+    # 将训练+验证数据分成K折（受试者级别）
+    train_files = np.array_split(train_val_subjects, n_folds)
     folds_data = {}
-    fold_size = len(train_val_files) // n_folds
     
     for fold_id in range(n_folds):
-        # 当前折的验证集
-        val_start = fold_id * fold_size
-        val_end = val_start + fold_size
-        val_files = train_val_files[val_start:val_end]
+        # 当前折的主体文件作为验证集
+        val_subjects = train_files[fold_id]
+        val_files = []
+        for subject_files in val_subjects:
+            val_files.extend(subject_files)
         
-        # 训练集（剩余的训练数据）
-        train_fold_files = train_val_files[:val_start] + train_val_files[val_end:]
+        # 其余折的主体文件作为训练集
+        train_subjects = []
+        for i in range(n_folds):
+            if i != fold_id:
+                train_subjects.extend(train_files[i])
         
+        train_files_flat = []
+        for subject_files in train_subjects:
+            train_files_flat.extend(subject_files)
+        
+        # 使用与原函数相同的字典格式返回
         folds_data[fold_id] = {
-            'train': train_fold_files,
+            'train': train_files_flat,
             'val': val_files
         }
     
     return folds_data, test_files
-
 
 def calc_class_weight(labels_count):
     total = np.sum(labels_count)
@@ -142,17 +195,20 @@ class MetricTracker:
 
     def reset(self):
         for col in self._data.columns:
-            self._data[col].values[:] = 0
+            self._data.loc[:, col] = 0
 
     def update(self, key, value, n=1):
+        # Skip update if value is None
+        if value is None:
+            return
         if self.writer is not None:
             self.writer.add_scalar(key, value)
-        self._data.total[key] += value * n
-        self._data.counts[key] += n
-        self._data.average[key] = self._data.total[key] / self._data.counts[key]
+        self._data.loc[key, 'total'] += value * n
+        self._data.loc[key, 'counts'] += n
+        self._data.loc[key, 'average'] = self._data.loc[key, 'total'] / self._data.loc[key, 'counts']
 
     def avg(self, key):
-        return self._data.average[key]
+        return self._data.loc[key, 'average']
 
     def result(self):
-        return dict(self._data.average)
+        return dict(self._data['average'])

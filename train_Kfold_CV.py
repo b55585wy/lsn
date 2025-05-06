@@ -89,22 +89,26 @@ def main(config, fold_id):
         )
     
     # 创建测试集数据加载器
-    if "type" in config["data_loader"] and config["data_loader"]["type"] == "data_generator_np_sequence":
-        # 序列测试集
-        seq_length = config["data_loader"]["args"]["seq_length"]
-        stride = config["data_loader"]["args"]["stride"]
-        test_dataset = SequentialEpochDataset(test_files, seq_length, stride)
+    if test_files and len(test_files) > 0:
+        if "type" in config["data_loader"] and config["data_loader"]["type"] == "data_generator_np_sequence":
+            # 序列测试集
+            seq_length = config["data_loader"]["args"]["seq_length"]
+            stride = config["data_loader"]["args"]["stride"]
+            test_dataset = SequentialEpochDataset(test_files, seq_length, stride)
+        else:
+            # 原始测试集
+            test_dataset = DualModalityDataset(test_files)
+            
+        test_loader = torch.utils.data.DataLoader(
+            dataset=test_dataset,
+            batch_size=batch_size,
+            shuffle=False,
+            drop_last=False,
+            num_workers=0
+        )
     else:
-        # 原始测试集
-        test_dataset = DualModalityDataset(test_files)
-        
-    test_loader = torch.utils.data.DataLoader(
-        dataset=test_dataset,
-        batch_size=batch_size,
-        shuffle=False,
-        drop_last=False,
-        num_workers=0
-    )
+        logger.info("没有测试集数据，跳过测试集初始化")
+        test_loader = None
     
     # 计算类别权重
     weights_for_each_class = calc_class_weight(data_count)
