@@ -54,10 +54,14 @@ def main(config, fold_id):
 
     # 获取损失函数和评估指标
     # criterion = getattr(module_loss, config['loss'])
-    # 获取损失函数类
-    criterion_class = getattr(module_loss, config['loss'])
-    # 实例化损失函数
-    criterion = criterion_class()
+    # 获取损失函数
+    if config['loss'] == 'focal_loss' or config['loss'] == 'sequential_focal_loss':
+        # 直接获取函数引用，不进行实例化
+        criterion = getattr(module_loss, config['loss'])
+    else:
+        # 获取损失函数类并实例化
+        criterion_class = getattr(module_loss, config['loss'])
+        criterion = criterion_class()
     
     metrics = [getattr(module_metric, met) for met in config['metrics']]
 
@@ -89,25 +93,33 @@ def main(config, fold_id):
         )
     
     # 创建测试集数据加载器
-    if "type" in config["data_loader"] and config["data_loader"]["type"] == "data_generator_np_sequence":
-        # 序列测试集
-        seq_length = config["data_loader"]["args"]["seq_length"]
-        stride = config["data_loader"]["args"]["stride"]
-        test_dataset = SequentialEpochDataset(test_files, seq_length, stride)
+    if test_files and len(test_files) > 0:
+        if "type" in config["data_loader"] and config["data_loader"]["type"] == "data_generator_np_sequence":
+            # 序列测试集
+            seq_length = config["data_loader"]["args"]["seq_length"]
+            stride = config["data_loader"]["args"]["stride"]
+            test_dataset = SequentialEpochDataset(test_files, seq_length, stride)
+        else:
+            # 原始测试集
+            test_dataset = DualModalityDataset(test_files)
+            
+        test_loader = torch.utils.data.DataLoader(
+            dataset=test_dataset,
+            batch_size=batch_size,
+            shuffle=False,
+            drop_last=False,
+            num_workers=0
+        )
     else:
-        # 原始测试集
-        test_dataset = DualModalityDataset(test_files)
-        
-    test_loader = torch.utils.data.DataLoader(
-        dataset=test_dataset,
-        batch_size=batch_size,
-        shuffle=False,
-        drop_last=False,
-        num_workers=0
-    )
+        logger.info("没有测试集数据，跳过测试集初始化")
+        test_loader = None
     
     # 计算类别权重
     weights_for_each_class = calc_class_weight(data_count)
+
+    # 使用自定义权重替换计算的权重
+    weights_for_each_class = [1.0, 1.80, 1.0, 1.8, 1.20]
+    logger.info(f"使用自定义类别权重: {weights_for_each_class}")
 
     # 创建训练器
     trainer = Trainer(model, criterion, metrics, optimizer,
