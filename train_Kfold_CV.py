@@ -3,6 +3,8 @@ import collections
 import numpy as np
 from pathlib import Path
 import json
+import os # 确保导入 os 模块
+print(f"[DEBUG] train_Kfold_CV.py: Initial CUDA_VISIBLE_DEVICES: {os.environ.get('CUDA_VISIBLE_DEVICES')}")
 
 from data_loader.data_loaders import *
 import model.loss as module_loss
@@ -15,7 +17,8 @@ from utils import read_json
 
 import torch
 import torch.nn as nn
-import os
+print(f"[DEBUG] train_Kfold_CV.py: torch.cuda.is_available(): {torch.cuda.is_available()}")
+print(f"[DEBUG] train_Kfold_CV.py: torch.cuda.device_count() right after torch import: {torch.cuda.device_count()}")
 
 # fix random seeds for reproducibility
 SEED = 123
@@ -152,11 +155,17 @@ if __name__ == '__main__':
     args = parser.parse_args()
     fold_id = int(args.fold_id)
     
+    print(f"[DEBUG] train_Kfold_CV.py: args.device from command line: {args.device}")
     # Only set CUDA_VISIBLE_DEVICES if -d or --device is explicitly passed
     if args.device is not None:
+        print(f"[DEBUG] train_Kfold_CV.py: Setting CUDA_VISIBLE_DEVICES to: {args.device} based on -d flag")
         os.environ["CUDA_VISIBLE_DEVICES"] = args.device
     
+    print(f"[DEBUG] train_Kfold_CV.py: CUDA_VISIBLE_DEVICES before ConfigParser: {os.environ.get('CUDA_VISIBLE_DEVICES')}")
+    print(f"[DEBUG] train_Kfold_CV.py: torch.cuda.device_count() before ConfigParser: {torch.cuda.device_count()}")
     config = ConfigParser.from_args(parser, fold_id)
+    print(f"[DEBUG] train_Kfold_CV.py: CUDA_VISIBLE_DEVICES after ConfigParser: {os.environ.get('CUDA_VISIBLE_DEVICES')}")
+    print(f"[DEBUG] train_Kfold_CV.py: torch.cuda.device_count() after ConfigParser: {torch.cuda.device_count()}")
     
     # 加载数据
     if "shhs" in args.np_data_dir:

@@ -2,6 +2,7 @@ import torch
 from abc import abstractmethod
 from numpy import inf
 import numpy as np
+import os
 
 class BaseTrainer:
     """
@@ -114,7 +115,10 @@ class BaseTrainer:
         """
         setup GPU device if available, move model into configured device
         """
+        print(f"[DEBUG] BaseTrainer._prepare_device: Entry CUDA_VISIBLE_DEVICES: {os.environ.get('CUDA_VISIBLE_DEVICES')}")
         n_gpu = torch.cuda.device_count()
+        print(f"[DEBUG] BaseTrainer._prepare_device: n_gpu_use (from config): {n_gpu_use}, torch.cuda.device_count() returned: {n_gpu}")
+        
         if n_gpu_use > 0 and n_gpu == 0:
             self.logger.warning("Warning: There\'s no GPU available on this machine,"
                                 "training will be performed on CPU.")
@@ -125,6 +129,7 @@ class BaseTrainer:
             n_gpu_use = n_gpu
         device = torch.device('cuda:0' if n_gpu_use > 0 else 'cpu')
         list_ids = list(range(n_gpu_use))
+        print(f"[DEBUG] BaseTrainer._prepare_device: Effective n_gpu_use: {n_gpu_use}, device: {device}, list_ids: {list_ids}")
         return device, list_ids
 
     def _save_checkpoint(self, epoch, save_best=True):
