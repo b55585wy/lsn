@@ -61,7 +61,7 @@ def kappa(outputs, targets):
     
     # 如果预测或目标只有一个类别，则可能会导致除以零
     if len(unique_preds) <= 1 or len(unique_targets) <= 1:
-        print("警告: 计算Kappa系数时检测到单一类别数据，跳过Kappa计算")
+        # print("警告: 计算Kappa系数时检测到单一类别数据，跳过Kappa计算")
         return None  # 返回None表示没有有效的Kappa值
     
     # 确保使用所有可能的类别标签（假设是5类睡眠阶段分类）
@@ -71,12 +71,12 @@ def kappa(outputs, targets):
         # 使用指定的所有标签计算kappa，即使数据中没有出现某些标签
         kappa_value = cohen_kappa_score(targets, preds, labels=all_labels)
         if np.isnan(kappa_value):
-            print("警告: Kappa系数计算为NaN，跳过Kappa输出")
+            # print("警告: Kappa系数计算为NaN，跳过Kappa输出")
             return None
         return kappa_value
     except Exception as e:
         # 发生错误时回退到直接计算
-        print(f"计算Kappa系数时出错: {e}，跳过Kappa输出")
+        # print(f"计算Kappa系数时出错: {e}，跳过Kappa输出")
         return None
 
 

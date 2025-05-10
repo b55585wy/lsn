@@ -568,7 +568,7 @@ class Trainer(BaseTrainer):
                 self.logger.info('    {:15s}: {}'.format(str(key), value))
 
             # 根据配置的指标评估模型性能，保存最佳检查点
-            best = False
+            best_this_epoch = False # Flag to check if this epoch was the best
             if self.mnt_mode != 'off':
                 try:
                     # 检查模型性能是否改善
@@ -583,8 +583,10 @@ class Trainer(BaseTrainer):
                 if improved:
                     self.mnt_best = log[self.mnt_metric]
                     not_improved_count = 0
-                    best = True
+                    best_this_epoch = True
                     best_metrics = log
+                    self.logger.info(f"New best model found at epoch {epoch} with {self.mnt_metric}: {self.mnt_best:.6f}. Saving checkpoint.")
+                    self._save_checkpoint(epoch, save_best=True) # Immediately save best model and its epoch checkpoint
                     
                     # 在最佳验证性能时评估测试集
                     if self.do_test:
@@ -599,8 +601,11 @@ class Trainer(BaseTrainer):
                                    "Training stops.".format(self.early_stop))
                     break
 
+            # Periodic save every 'self.save_period' epochs
             if epoch % self.save_period == 0:
-                self._save_checkpoint(epoch, save_best=best)
+                if not best_this_epoch: # Only save periodically if not already saved as best in this epoch
+                    self.logger.info(f"Saving periodic checkpoint at epoch {epoch}.")
+                    self._save_checkpoint(epoch, save_best=False)
         
         # 保存当前折的最佳指标（包括验证集和测试集）
         if best_metrics is not None:

@@ -436,8 +436,9 @@ class BioSleepXSeq(nn.Module):
         
         # 数据增强和标准化
         if self.training:
-            x_eeg_flat = augment_signal(x_eeg_flat)
-            x_eog_flat = augment_signal(x_eog_flat)
+            # x_eeg_flat = augment_signal(x_eeg_flat)
+            # x_eog_flat = augment_signal(x_eog_flat)
+            pass
             
         x_eeg_flat = normalize_signal(x_eeg_flat)
         x_eog_flat = normalize_signal(x_eog_flat)

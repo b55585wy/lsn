@@ -207,3 +207,11 @@ results/
 .vscode/
 *.swp
 *.swo
+
+*.tar.gz
+*.tar.bz2
+*.tar.xz
+*.tar.lzma
+*.tar.wim
+*.tar.zst
+*.tar.br

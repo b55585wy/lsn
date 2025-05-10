@@ -16,7 +16,7 @@ def get_subject_id(file_path):
     file_name = os.path.split(file_path)[-1]
     return file_name[3:5]  # 提取主体ID (SC4XXX中的XX部分)
 
-def check_data_split(fold_id, np_data_path, n_folds=20):
+def check_data_split(fold_id, np_data_path, n_folds=10):
     """检查数据划分是否存在ID重叠问题"""
     # 加载数据划分
     folds_data, test_files = load_folds_data(np_data_path, n_folds)
@@ -67,7 +67,7 @@ def check_data_split(fold_id, np_data_path, n_folds=20):
     
     return is_valid
 
-def find_valid_folds(np_data_path, n_folds=20):
+def find_valid_folds(np_data_path, n_folds=10):
     """找出所有没有ID重叠问题的折"""
     valid_folds = []
     for fold_id in range(n_folds):
@@ -90,17 +90,16 @@ def main():
     
     # 使用正确的数据路径
     data_paths = [
-        "/hpc2hdd/home/ywang183/biosleep_3/data20/data20npy",
-        "/hpc2hdd/home/ywang183/biosleep_3/data78/processed"
+        "/hpc2hdd/home/ywang183/biosleepx/data20/data20npy",
+        "/hpc2hdd/home/ywang183/biosleepx/data78/processed"
     ]
-    n_folds_options = [10, 20]  # 允许测试不同的折数配置
+    n_folds = 10
     
     for data_path in data_paths:
         print(f"\n===== 分析数据集: {data_path} =====")
-        for n_folds in n_folds_options:
-            print(f"\n----- 使用 {n_folds} 折交叉验证 -----")
-            # 找出所有没有问题的折
-            valid_folds = find_valid_folds(data_path, n_folds)
+        
+        # 找出所有没有问题的折
+        valid_folds = find_valid_folds(data_path, n_folds)
 
 if __name__ == "__main__":
-    main()
+    main() 
