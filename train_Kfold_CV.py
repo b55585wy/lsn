@@ -5,6 +5,8 @@ from pathlib import Path
 import json
 import os # 确保导入 os 模块
 print(f"[DEBUG] train_Kfold_CV.py: Initial CUDA_VISIBLE_DEVICES: {os.environ.get('CUDA_VISIBLE_DEVICES')}")
+import os # 确保导入 os 模块
+print(f"[DEBUG] train_Kfold_CV.py: Initial CUDA_VISIBLE_DEVICES: {os.environ.get('CUDA_VISIBLE_DEVICES')}")
 
 from data_loader.data_loaders import *
 import model.loss as module_loss
@@ -17,6 +19,8 @@ from utils import read_json
 
 import torch
 import torch.nn as nn
+print(f"[DEBUG] train_Kfold_CV.py: torch.cuda.is_available(): {torch.cuda.is_available()}")
+print(f"[DEBUG] train_Kfold_CV.py: torch.cuda.device_count() right after torch import: {torch.cuda.device_count()}")
 print(f"[DEBUG] train_Kfold_CV.py: torch.cuda.is_available(): {torch.cuda.is_available()}")
 print(f"[DEBUG] train_Kfold_CV.py: torch.cuda.device_count() right after torch import: {torch.cuda.device_count()}")
 
@@ -57,6 +61,14 @@ def main(config, fold_id):
 
     # 获取损失函数和评估指标
     # criterion = getattr(module_loss, config['loss'])
+    # 获取损失函数
+    if config['loss'] == 'focal_loss' or config['loss'] == 'sequential_focal_loss':
+        # 直接获取函数引用，不进行实例化
+        criterion = getattr(module_loss, config['loss'])
+    else:
+        # 获取损失函数类并实例化
+        criterion_class = getattr(module_loss, config['loss'])
+        criterion = criterion_class()
     # 获取损失函数
     if config['loss'] == 'focal_loss' or config['loss'] == 'sequential_focal_loss':
         # 直接获取函数引用，不进行实例化
@@ -116,6 +128,26 @@ def main(config, fold_id):
     else:
         logger.info("没有测试集数据，跳过测试集初始化")
         test_loader = None
+    if test_files and len(test_files) > 0:
+        if "type" in config["data_loader"] and config["data_loader"]["type"] == "data_generator_np_sequence":
+            # 序列测试集
+            seq_length = config["data_loader"]["args"]["seq_length"]
+            stride = config["data_loader"]["args"]["stride"]
+            test_dataset = SequentialEpochDataset(test_files, seq_length, stride)
+        else:
+            # 原始测试集
+            test_dataset = DualModalityDataset(test_files)
+            
+        test_loader = torch.utils.data.DataLoader(
+            dataset=test_dataset,
+            batch_size=batch_size,
+            shuffle=False,
+            drop_last=False,
+            num_workers=0
+        )
+    else:
+        logger.info("没有测试集数据，跳过测试集初始化")
+        test_loader = None
     
     # 计算类别权重
     weights_for_each_class = calc_class_weight(data_count)
@@ -146,6 +178,8 @@ if __name__ == '__main__':
                       help='path to latest checkpoint (default: None)')
     parser.add_argument('-d', '--device', default=None, type=str,
                       help='indices of GPUs to enable (e.g., "0,1,2"). If not set, uses CUDA_VISIBLE_DEVICES or all available.')
+    parser.add_argument('-d', '--device', default=None, type=str,
+                      help='indices of GPUs to enable (e.g., "0,1,2"). If not set, uses CUDA_VISIBLE_DEVICES or all available.')
     parser.add_argument('-f', '--fold_id', type=str, required=True,
                       help='fold_id')
     parser.add_argument('-da', '--np_data_dir', type=str, required=True,
@@ -158,13 +192,20 @@ if __name__ == '__main__':
     
     print(f"[DEBUG] train_Kfold_CV.py: args.device from command line: {args.device}")
     # Only set CUDA_VISIBLE_DEVICES if -d or --device is explicitly passed
+    print(f"[DEBUG] train_Kfold_CV.py: args.device from command line: {args.device}")
+    # Only set CUDA_VISIBLE_DEVICES if -d or --device is explicitly passed
     if args.device is not None:
+        print(f"[DEBUG] train_Kfold_CV.py: Setting CUDA_VISIBLE_DEVICES to: {args.device} based on -d flag")
         print(f"[DEBUG] train_Kfold_CV.py: Setting CUDA_VISIBLE_DEVICES to: {args.device} based on -d flag")
         os.environ["CUDA_VISIBLE_DEVICES"] = args.device
     
     print(f"[DEBUG] train_Kfold_CV.py: CUDA_VISIBLE_DEVICES before ConfigParser: {os.environ.get('CUDA_VISIBLE_DEVICES')}")
     print(f"[DEBUG] train_Kfold_CV.py: torch.cuda.device_count() before ConfigParser: {torch.cuda.device_count()}")
+    print(f"[DEBUG] train_Kfold_CV.py: CUDA_VISIBLE_DEVICES before ConfigParser: {os.environ.get('CUDA_VISIBLE_DEVICES')}")
+    print(f"[DEBUG] train_Kfold_CV.py: torch.cuda.device_count() before ConfigParser: {torch.cuda.device_count()}")
     config = ConfigParser.from_args(parser, fold_id)
+    print(f"[DEBUG] train_Kfold_CV.py: CUDA_VISIBLE_DEVICES after ConfigParser: {os.environ.get('CUDA_VISIBLE_DEVICES')}")
+    print(f"[DEBUG] train_Kfold_CV.py: torch.cuda.device_count() after ConfigParser: {torch.cuda.device_count()}")
     print(f"[DEBUG] train_Kfold_CV.py: CUDA_VISIBLE_DEVICES after ConfigParser: {os.environ.get('CUDA_VISIBLE_DEVICES')}")
     print(f"[DEBUG] train_Kfold_CV.py: torch.cuda.device_count() after ConfigParser: {torch.cuda.device_count()}")
     
