@@ -1,6 +1,7 @@
 {
   "name": "BioSleepX_Seq_FocalLoss",
   "n_gpu": 8,
+  "n_gpu": 8,
   "arch": {
       "type": "BioSleepXSeq",
       "args": {
@@ -47,7 +48,7 @@
   "trainer": {
       "epochs": 100,
       "save_dir": "saved/focal_loss_seq",
-      "save_period": 30,
+      "save_period": 10,
       "verbosity": 2,
       "monitor": "min val_loss",
       "early_stop": 10

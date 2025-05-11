@@ -1,6 +1,6 @@
 {
     "name": "Exp1",
-    "n_gpu": 3,
+    "n_gpu": 1,
     "arch": {
         "type": "BioSleepX",
         "args": {
@@ -8,8 +8,8 @@
     },
     "data_loader": {
         "args":{
-            "batch_size": 1024,
-            "num_folds": 20
+            "batch_size": 128,
+            "num_folds": 10
         }
     },
     "optimizer": {
@@ -20,18 +20,10 @@
             "amsgrad": true
         }
     },
-    "lr_scheduler": {
-        "type": "CosineAnnealingLR",
-        "args": {
-            "T_max": 100,
-            "eta_min": 1e-6
-        }
-    },
     "loss": "weighted_CrossEntropyLoss",
     "metrics": [
         "accuracy",
-        "f1",
-        "kappa"
+        "f1"
     ],
     "trainer": {
         "epochs": 100,
