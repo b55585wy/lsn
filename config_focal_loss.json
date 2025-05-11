@@ -1,7 +1,6 @@
 {
   "name": "BioSleepX_Seq_FocalLoss",
   "n_gpu": 8,
-  "n_gpu": 8,
   "arch": {
       "type": "BioSleepXSeq",
       "args": {

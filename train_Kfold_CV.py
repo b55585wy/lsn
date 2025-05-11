@@ -84,70 +84,33 @@ def main(config, fold_id):
     trainable_params = filter(lambda p: p.requires_grad, model.parameters())
     optimizer = config.init_obj('optimizer', torch.optim, trainable_params)
 
-    # 获取当前折的训练集和验证集
-    fold_data = folds_data[fold_id]
+    # 获取当前折的训练集和测试集 (previously validation set)
+    current_fold_data = folds_data[fold_id] # This is now {'train': [...], 'test': [...]}
     
+    train_files_for_fold = current_fold_data['train']
+    test_files_for_fold = current_fold_data['test']
+
     # 根据配置文件选择适当的数据加载器
     if "type" in config["data_loader"] and config["data_loader"]["type"] == "data_generator_np_sequence":
         # 使用序列数据加载器
         seq_length = config["data_loader"]["args"]["seq_length"]
         stride = config["data_loader"]["args"]["stride"]
+        # data_loader is for training, valid_data_loader is for epoch validation (using the fold's test set)
         data_loader, valid_data_loader, data_count = data_generator_np_sequence(
-            fold_data['train'], 
-            fold_data['val'], 
+            train_files_for_fold, 
+            test_files_for_fold, # Use test set of the fold for validation during training
             batch_size,
             seq_length,
             stride
         )
     else:
         # 使用原始双模态数据加载器
+        # data_loader is for training, valid_data_loader is for epoch validation (using the fold's test set)
         data_loader, valid_data_loader, data_count = data_generator_np_dual(
-            fold_data['train'], 
-            fold_data['val'], 
+            train_files_for_fold, 
+            test_files_for_fold, # Use test set of the fold for validation during training
             batch_size
         )
-    
-    # 创建测试集数据加载器
-    if test_files and len(test_files) > 0:
-        if "type" in config["data_loader"] and config["data_loader"]["type"] == "data_generator_np_sequence":
-            # 序列测试集
-            seq_length = config["data_loader"]["args"]["seq_length"]
-            stride = config["data_loader"]["args"]["stride"]
-            test_dataset = SequentialEpochDataset(test_files, seq_length, stride)
-        else:
-            # 原始测试集
-            test_dataset = DualModalityDataset(test_files)
-            
-        test_loader = torch.utils.data.DataLoader(
-            dataset=test_dataset,
-            batch_size=batch_size,
-            shuffle=False,
-            drop_last=False,
-            num_workers=0
-        )
-    else:
-        logger.info("没有测试集数据，跳过测试集初始化")
-        test_loader = None
-    if test_files and len(test_files) > 0:
-        if "type" in config["data_loader"] and config["data_loader"]["type"] == "data_generator_np_sequence":
-            # 序列测试集
-            seq_length = config["data_loader"]["args"]["seq_length"]
-            stride = config["data_loader"]["args"]["stride"]
-            test_dataset = SequentialEpochDataset(test_files, seq_length, stride)
-        else:
-            # 原始测试集
-            test_dataset = DualModalityDataset(test_files)
-            
-        test_loader = torch.utils.data.DataLoader(
-            dataset=test_dataset,
-            batch_size=batch_size,
-            shuffle=False,
-            drop_last=False,
-            num_workers=0
-        )
-    else:
-        logger.info("没有测试集数据，跳过测试集初始化")
-        test_loader = None
     
     # 计算类别权重
     weights_for_each_class = calc_class_weight(data_count)
@@ -160,10 +123,10 @@ def main(config, fold_id):
     # 创建训练器
     trainer = Trainer(model, criterion, metrics, optimizer,
                      config=config,
-                     data_loader=data_loader,
+                     data_loader=data_loader,  # Training data for the current fold
                      fold_id=fold_id,
-                     valid_data_loader=valid_data_loader,
-                     test_data_loader=test_loader,
+                     valid_data_loader=valid_data_loader, # Validation data for epoch monitoring (from current fold's test set)
+                     test_data_loader=valid_data_loader,   # Test data for final evaluation of this fold (also from current fold's test set)
                      class_weights=weights_for_each_class)
 
     # 训练模型并返回结果
@@ -176,8 +139,6 @@ if __name__ == '__main__':
                       help='config file path (default: None)')
     parser.add_argument('-r', '--resume', default=None, type=str,
                       help='path to latest checkpoint (default: None)')
-    parser.add_argument('-d', '--device', default=None, type=str,
-                      help='indices of GPUs to enable (e.g., "0,1,2"). If not set, uses CUDA_VISIBLE_DEVICES or all available.')
     parser.add_argument('-d', '--device', default=None, type=str,
                       help='indices of GPUs to enable (e.g., "0,1,2"). If not set, uses CUDA_VISIBLE_DEVICES or all available.')
     parser.add_argument('-f', '--fold_id', type=str, required=True,
@@ -210,11 +171,15 @@ if __name__ == '__main__':
     print(f"[DEBUG] train_Kfold_CV.py: torch.cuda.device_count() after ConfigParser: {torch.cuda.device_count()}")
     
     # 加载数据
+    num_folds_from_config = config["data_loader"]["args"]["num_folds"]
     if "shhs" in args.np_data_dir:
-        folds_data = load_folds_data_shhs(args.np_data_dir, config["data_loader"]["args"]["num_folds"])
-        test_files = None  # SHHS数据集不划分测试集
+        # load_folds_data_shhs now returns dict {'train': [...], 'test': [...]} per fold
+        folds_data = load_folds_data_shhs(args.np_data_dir, num_folds_from_config)
+        # No global test_files
     else:
-        folds_data, test_files = load_folds_data(args.np_data_dir, config["data_loader"]["args"]["num_folds"])
+        # load_folds_data now returns dict {'train': [...], 'test': [...]} per fold
+        folds_data = load_folds_data(args.np_data_dir, num_folds_from_config)
+        # No global test_files
 
     # 训练当前折
     fold_metrics = main(config, fold_id)
