@@ -121,7 +121,7 @@ def main(config, fold_id):
     weights_for_each_class = calc_class_weight(data_count)
 
     # 使用自定义权重替换计算的权重
-    weights_for_each_class = [1.0, 1.80, 1.0, 1.8, 1.20]
+    weights_for_each_class = [1.0, 1.80, 1.5, 1.5, 1.20]
     logger.info(f"使用自定义类别权重: {weights_for_each_class}")
 
     # 创建训练器

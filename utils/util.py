@@ -23,15 +23,25 @@ def load_folds_data_shhs(np_data_path, n_folds):
 
 def load_folds_data_correctly(np_data_path, n_folds):
     files = sorted(glob(os.path.join(np_data_path, "*.npz")))
+
+    # Dynamically construct the path to the permutation file
+    dataset_identifier = ""
     if "78" in np_data_path:
-        r_p_path = r"utils/r_permute_78.npy"
+        dataset_identifier = "78"
+    elif "20" in np_data_path: # Or any other logic to determine dataset type from path
+        dataset_identifier = "20"
     else:
-        r_p_path = r"utils/r_permute_20.npy"
+        # Fallback or error for unknown dataset type in path
+        print(f"Warning: Could not determine dataset identifier from path {np_data_path} for load_folds_data_correctly, defaulting to '20' for permutation file.")
+        dataset_identifier = "20" # Defaulting, consider making this stricter if necessary
+
+    r_p_path = os.path.join("utils", "permutations", f"{n_folds}_fold", f"r_permute_{dataset_identifier}.npy")
 
     if os.path.exists(r_p_path):
         r_permute = np.load(r_p_path)
     else:
-        print("============== ERROR =================")
+        # Updated error handling
+        raise FileNotFoundError(f"Permutation file not found at {r_p_path} for load_folds_data_correctly. Please ensure it exists.")
 
     # 按主体组织文件
     files_dict = dict()
@@ -66,6 +76,7 @@ def load_folds_data_correctly(np_data_path, n_folds):
         folds_data[fold_id] = [training_files, subject_files]
         
     return folds_data
+
 def load_folds_data(np_data_path, n_folds, train_ratio=0.8, val_ratio=0.2):
     """
     按受试者级别划分数据集并进行K折交叉验证，避免数据泄露
@@ -79,15 +90,48 @@ def load_folds_data(np_data_path, n_folds, train_ratio=0.8, val_ratio=0.2):
         test_files: 测试集文件列表
     """
     files = sorted(glob(os.path.join(np_data_path, "*.npz")))
+    
+    # Dynamically construct the path to the permutation file
+    dataset_identifier = "78" if "78" in np_data_path else "20" # Assuming "20" is the only other option
+    # It might be safer to explicitly check for "20" or raise an error if neither is found
     if "78" in np_data_path:
-        r_p_path = r"utils/r_permute_78.npy"
+        dataset_identifier = "78"
+    elif "20" in np_data_path: # Or any other logic to determine dataset type from path
+        dataset_identifier = "20"
     else:
-        r_p_path = r"utils/r_permute_20.npy"
+        # Fallback or error for unknown dataset type in path
+        # For now, let's assume it's "20" if not "78", but this should be robust
+        print(f"Warning: Could not determine dataset identifier from path {np_data_path}, defaulting to '20' for permutation file.")
+        dataset_identifier = "20" 
+
+
+    r_p_path = os.path.join("utils", "permutations", f"{n_folds}_fold", f"r_permute_{dataset_identifier}.npy")
 
     if os.path.exists(r_p_path):
         r_permute = np.load(r_p_path)
     else:
-        print("============== ERROR =================")
+        print(f"============== ERROR: Permutation file not found at {r_p_path} ================= ")
+        # Depending on requirements, you might want to raise an error here or fall back
+        # to a default permutation or no permutation.
+        # For now, the code will likely fail later if r_permute is not defined.
+        # Consider adding: raise FileNotFoundError(f"Permutation file not found: {r_p_path}")
+        # Or, generate a default permutation on the fly (though this loses reproducibility if file is expected)
+        # For this example, let's assume the original error message and potential downstream failure is acceptable.
+        # Fallback to old paths if new structure is not found, for backward compatibility (optional)
+        # old_r_p_path_78 = r"utils/r_permute_78.npy"
+        # old_r_p_path_20 = r"utils/r_permute_20.npy"
+        # if "78" in np_data_path and os.path.exists(old_r_p_path_78):
+        #     print(f"Warning: Using old permutation file {old_r_p_path_78}")
+        #     r_permute = np.load(old_r_p_path_78)
+        # elif "20" in np_data_path and os.path.exists(old_r_p_path_20):
+        #     print(f"Warning: Using old permutation file {old_r_p_path_20}")
+        #     r_permute = np.load(old_r_p_path_20)
+        # else:
+        #     print(f"============== ERROR: Permutation file not found at {r_p_path} and no fallback available ================= ")
+        #     # This will cause an UnboundLocalError for r_permute if not handled.
+        #     # It's better to raise an explicit error.
+        raise FileNotFoundError(f"Permutation file not found at {r_p_path}. Please ensure it exists or adjust data loading logic.")
+
 
     # 按主体组织文件
     files_dict = dict()

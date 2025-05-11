@@ -130,7 +130,7 @@ def evaluate_model(model_path, data_dir, device='cuda', is_sequence=True, seq_le
                 print("警告: Kappa 系数计算为 NaN，设为 0")
                 kappa_score = 0.0
     except Exception as e:
-        print(f"计算 Kappa 系数时出错: {e}，设为 0")
+        # print(f"计算 Kappa 系数时出错: {e}，设为 0")
         kappa_score = 0.0
     
     # 生成详细的分类报告
