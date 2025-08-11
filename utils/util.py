@@ -7,84 +7,74 @@ import os
 import numpy as np
 from glob import glob
 import math
+import torch
 
 def load_folds_data_shhs(np_data_path, n_folds):
+    """
+    按受试者级别划分SHHS数据集并进行K折交叉验证，避免数据泄露。
+    Args:
+        np_data_path: 数据目录路径
+        n_folds: 交叉验证折数
+    Returns:
+        folds_data: 包含每折训练集和测试集的字典
+    """
     files = sorted(glob(os.path.join(np_data_path, "*.npz")))
-    r_p_path = r"utils/r_permute_shhs.npy"
-    r_permute = np.load(r_p_path)
-    npzfiles = np.asarray(files , dtype='<U200')[r_permute]
-    # npzfiles is a flat list of all file paths for this dataset, permuted
     
-    # Split all files into n_folds parts. Each part corresponds to one fold's test/validation set.
-    subject_groups_for_folds = np.array_split(npzfiles, n_folds)
-    folds_data = {}
-    for fold_id in range(n_folds):
-        # Current fold's files are for testing
-        # Ensure it's a list of strings, not a numpy array of strings
-        test_files_for_fold = list(subject_groups_for_folds[fold_id])
-        
-        # Training files are all files except those in the current test fold
-        # Using sets for efficient difference
-        training_files = list(set(npzfiles) - set(test_files_for_fold))
-        
-        folds_data[fold_id] = {'train': training_files, 'test': test_files_for_fold}
-    return folds_data
-
-def load_folds_data_correctly(np_data_path, n_folds):
-    files = sorted(glob(os.path.join(np_data_path, "*.npz")))
-
-    # Dynamically construct the path to the permutation file
-    dataset_identifier = ""
-    if "78" in np_data_path:
-        dataset_identifier = "78"
-    elif "20" in np_data_path: # Or any other logic to determine dataset type from path
-        dataset_identifier = "20"
-    else:
-        # Fallback or error for unknown dataset type in path
-        print(f"Warning: Could not determine dataset identifier from path {np_data_path} for load_folds_data_correctly, defaulting to '20' for permutation file.")
-        dataset_identifier = "20" # Defaulting, consider making this stricter if necessary
-
-    r_p_path = os.path.join("utils", "permutations", f"{n_folds}_fold", f"r_permute_{dataset_identifier}.npy")
+    # 动态构建置换文件路径
+    r_p_path = os.path.join("utils", "permutations", f"{n_folds}_fold", "r_permute_shhs.npy")
 
     if os.path.exists(r_p_path):
         r_permute = np.load(r_p_path)
     else:
-        # Updated error handling
-        raise FileNotFoundError(f"Permutation file not found at {r_p_path} for load_folds_data_correctly. Please ensure it exists.")
+        raise FileNotFoundError(f"置换文件未找到: {r_p_path}. 请确保它存在或调整数据加载逻辑。")
 
     # 按主体组织文件
     files_dict = dict()
     for i in files:
-        file_name = os.path.split(i)[-1] 
-        file_num = file_name[3:5]
+        file_name = os.path.split(i)[-1]
+        # 对于SHHS文件，受试者ID通常在文件名中，例如 shhs1-200001.npz
+        # 提取 '200001' 部分作为受试者ID
+        file_num = file_name[6:12]
         if file_num not in files_dict:
             files_dict[file_num] = [i]
         else:
             files_dict[file_num].append(i)
             
     # 转换为列表并按r_permute打乱主体顺序
-    files_pairs = []
+    subject_level_files_grouped = []
     for key in files_dict:
-        files_pairs.append(files_dict[key])
-    files_pairs = np.array(files_pairs, dtype=object)
-    files_pairs = files_pairs[r_permute]
-
-    # 将主体分成n_folds组
-    train_files = np.array_split(files_pairs, n_folds)
+        subject_level_files_grouped.append(files_dict[key])
+    subject_level_files_grouped = np.array(subject_level_files_grouped, dtype=object)
+    subject_level_files_grouped = subject_level_files_grouped[r_permute] # Permute subjects
+    
+    # 将所有受试者分成K折
+    subject_folds_split = np.array_split(subject_level_files_grouped, n_folds)
     folds_data = {}
     
     for fold_id in range(n_folds):
-        # 当前折的主体文件作为验证集
-        subject_files = train_files[fold_id]
-        subject_files = [item for sublist in subject_files for item in sublist]
+        # 当前折的主体文件作为测试集
+        test_subject_groups = subject_folds_split[fold_id]
+        test_files_flat = []
+        for subject_files_list in test_subject_groups:
+            test_files_flat.extend(subject_files_list)
         
-        # 所有其他主体文件作为训练集
-        files_pairs2 = [item for sublist in files_pairs for item in sublist]
-        training_files = list(set(files_pairs2) - set(subject_files))
+        # 其余折的主体文件作为训练集
+        train_subject_groups = []
+        for i in range(n_folds):
+            if i != fold_id:
+                train_subject_groups.extend(subject_folds_split[i])
         
-        folds_data[fold_id] = [training_files, subject_files]
+        train_files_flat = []
+        for subject_files_list in train_subject_groups:
+            train_files_flat.extend(subject_files_list)
         
+        folds_data[fold_id] = {
+            'train': train_files_flat,
+            'test': test_files_flat
+        }
+    
     return folds_data
+
 
 def load_folds_data(np_data_path, n_folds):
     """
@@ -99,14 +89,16 @@ def load_folds_data(np_data_path, n_folds):
     files = sorted(glob(os.path.join(np_data_path, "*.npz")))
     
     # Dynamically construct the path to the permutation file
-    dataset_identifier = "78" if "78" in np_data_path else "20"
-    if "78" in np_data_path:
+    dataset_identifier = ""
+    if "SHHS" in np_data_path.upper(): # Check for "SHHS" (case-insensitive)
+        dataset_identifier = "shhs"
+    elif "78" in np_data_path:
         dataset_identifier = "78"
     elif "20" in np_data_path:
         dataset_identifier = "20"
     else:
         print(f"Warning: Could not determine dataset identifier from path {np_data_path}, defaulting to '20' for permutation file.")
-        dataset_identifier = "20" 
+        dataset_identifier = "20"
 
     r_p_path = os.path.join("utils", "permutations", f"{n_folds}_fold", f"r_permute_{dataset_identifier}.npy")
 
@@ -119,7 +111,10 @@ def load_folds_data(np_data_path, n_folds):
     files_dict = dict()
     for i in files:
         file_name = os.path.split(i)[-1] 
-        file_num = file_name[3:5]
+        if dataset_identifier == "shhs":
+            file_num = file_name[6:12] # For SHHS files like shhs1-200001.npz
+        else: # Assuming "20" or "78" for PhysioNet-like datasets
+            file_num = file_name[3:5] # For PhysioNet files like SC4001E0.npz, subject ID is 4001
         if file_num not in files_dict:
             files_dict[file_num] = [i]
         else:
@@ -227,3 +222,27 @@ class MetricTracker:
 
     def result(self):
         return dict(self._data['average'])
+
+def prepare_device(n_gpu_use):
+    """
+    设置GPU设备，如果请求的GPU数量大于可用数量，则降低请求数量
+    
+    Args:
+        n_gpu_use (int): GPU设备数量，None代表使用全部可用设备
+    
+    Returns:
+        device (torch.device): 主设备
+        list_ids (list): 活跃GPU ID列表
+    """
+    n_gpu = torch.cuda.device_count()
+    if n_gpu_use > 0 and n_gpu == 0:
+        print("警告: 请求的GPU不可用，使用CPU代替")
+        n_gpu_use = 0
+    if n_gpu_use > n_gpu:
+        print(f"警告: 请求的GPU数量{n_gpu_use}超过可用数量{n_gpu}，仅使用{n_gpu}个GPU")
+        n_gpu_use = n_gpu
+    
+    device = torch.device('cuda:0' if n_gpu_use > 0 else 'cpu')
+    list_ids = list(range(n_gpu_use))
+    
+    return device, list_ids

@@ -2,6 +2,7 @@ import torch
 from torch.utils.data import Dataset
 import os
 import numpy as np
+from model.augmentation import Compose, RandomNoise, RandomScaling # 导入增强类
 
 class DualModalityDataset(Dataset):
     def __init__(self, np_dataset):
@@ -49,7 +50,7 @@ class DualModalityDataset(Dataset):
 
 # 新增序列数据集类
 class SequentialEpochDataset(Dataset):
-    def __init__(self, np_dataset, seq_length=5, stride=1):
+    def __init__(self, np_dataset, seq_length=5, stride=1, transform=None):
         """
         加载连续多个epoch的数据集
         
@@ -57,8 +58,10 @@ class SequentialEpochDataset(Dataset):
             np_dataset: 数据文件列表
             seq_length: 要加载的连续epoch数量
             stride: 滑动窗口的步长
+            transform: 要应用于数据的转换 (数据增强)
         """
         super(SequentialEpochDataset, self).__init__()
+        self.transform = transform # 添加这一行
         
         # 加载所有文件数据并记录边界
         all_eeg = []
@@ -132,7 +135,12 @@ class SequentialEpochDataset(Dataset):
         eog_seq = torch.stack([self.x_eog_all[orig_idx + i] for i in range(self.seq_length)])
         label_seq = torch.stack([self.y_all[orig_idx + i] for i in range(self.seq_length)])
         
-        return eeg_seq, eog_seq, label_seq
+        sample = {'eeg': eeg_seq, 'eog': eog_seq, 'label': label_seq}
+
+        if self.transform:
+            sample = self.transform(sample)
+        
+        return sample['eeg'], sample['eog'], sample['label']
 
     def __len__(self):
         return len(self.valid_indices)
@@ -187,13 +195,13 @@ def data_generator_np(train_files, val_files, batch_size):
                                              batch_size=batch_size,
                                              shuffle=True,
                                              drop_last=False,
-                                             num_workers=0)
+                                             num_workers=4)
 
     val_loader = torch.utils.data.DataLoader(dataset=val_dataset,
                                            batch_size=batch_size,
                                            shuffle=False,
                                            drop_last=False,
-                                           num_workers=0)
+                                           num_workers=4)
 
     return train_loader, val_loader, counts
 
@@ -218,18 +226,18 @@ def data_generator_np_dual(train_files, val_files, batch_size):
                                              batch_size=batch_size,
                                              shuffle=True,
                                              drop_last=False,
-                                             num_workers=0)
+                                             num_workers=4)
 
     val_loader = torch.utils.data.DataLoader(dataset=val_dataset,
                                            batch_size=batch_size,
                                            shuffle=False,
                                            drop_last=False,
-                                           num_workers=0)
+                                           num_workers=4)
 
     return train_loader, val_loader, counts
 
 # 新增序列数据加载函数
-def data_generator_np_sequence(train_files, val_files, batch_size, seq_length=5, stride=1):
+def data_generator_np_sequence(train_files, val_files, batch_size, seq_length=5, stride=1, transform=None):
     """
     生成训练集和验证集的序列数据加载器
     Args:
@@ -238,9 +246,10 @@ def data_generator_np_sequence(train_files, val_files, batch_size, seq_length=5,
         batch_size: 批次大小
         seq_length: 序列长度
         stride: 滑动窗口步长
+        transform: 要应用于训练数据的转换 (数据增强)
     """
-    train_dataset = SequentialEpochDataset(train_files, seq_length, stride)
-    val_dataset = SequentialEpochDataset(val_files, seq_length, stride)
+    train_dataset = SequentialEpochDataset(train_files, seq_length, stride, transform=transform)
+    val_dataset = SequentialEpochDataset(val_files, seq_length, stride) # 验证集通常不应用增强
 
     # 计算类别权重 - 使用所有标签
     all_ys = train_dataset.y_all.numpy().tolist() + val_dataset.y_all.numpy().tolist()
@@ -251,12 +260,98 @@ def data_generator_np_sequence(train_files, val_files, batch_size, seq_length=5,
                                              batch_size=batch_size,
                                              shuffle=True,
                                              drop_last=False,
-                                             num_workers=0)
+                                             num_workers=4)
 
     val_loader = torch.utils.data.DataLoader(dataset=val_dataset,
                                            batch_size=batch_size,
                                            shuffle=False,
                                            drop_last=False,
-                                           num_workers=0)
+                                           num_workers=4)
 
     return train_loader, val_loader, counts
+
+
+# for epilepsy dataset
+class EpilepsyDataset(Dataset):
+    def __init__(self, data_dir, seq_length=1, stride=1):
+        super(EpilepsyDataset, self).__init__()
+        self.seq_length = seq_length
+        self.stride = stride
+        
+        all_files = []
+        # 遍历 Z, O, N, F, S 文件夹
+        for folder in ['Z', 'O', 'N', 'F', 'S']:
+            folder_path = os.path.join(data_dir, folder)
+            if os.path.isdir(folder_path):
+                files = [os.path.join(folder_path, f) for f in os.listdir(folder_path) if f.endswith('.txt')]
+                all_files.extend(files)
+
+        # 如果在根目录，直接加载
+        if not all_files:
+            all_files = [os.path.join(data_dir, f) for f in os.listdir(data_dir) if f.endswith('.txt')]
+
+        data = []
+        labels = []
+        
+        # 定义标签映射
+        label_map = {'Z': 0, 'O': 0, 'N': 0, 'F': 0, 'S': 1}
+
+        for file_path in all_files:
+            # 从文件名或路径中提取类别
+            filename = os.path.basename(file_path)
+            # 类别是文件名的第一个字母
+            class_char = filename[0].upper()
+            label = label_map.get(class_char, -1) # 如果找不到，默认为-1
+
+            if label != -1:
+                # 读取每个txt文件，每行是一个整数
+                with open(file_path, 'r') as f:
+                    # 将所有行读入一个列表，并转换为整数
+                    raw_data = [int(line.strip()) for line in f.readlines()]
+                    # 将整个文件作为一个样本
+                    data.append(np.array(raw_data, dtype=np.float32))
+                    labels.append(label)
+
+        self.x_data = data
+        self.y_data = torch.tensor(labels, dtype=torch.long)
+        
+        # 创建有效序列索引
+        self.valid_indices = []
+        for i in range(len(self.x_data)):
+            # 这里的逻辑简化为每个文件是一个样本，不进行滑动窗口
+            self.valid_indices.append(i)
+
+    def __getitem__(self, index):
+        orig_idx = self.valid_indices[index]
+        
+        # 获取数据和标签
+        sample_data = self.x_data[orig_idx]
+        sample_label = self.y_data[orig_idx]
+        
+        # 转换为Tensor
+        x_tensor = torch.from_numpy(sample_data).float().unsqueeze(0) # 增加一个通道维度 (1, 4096)
+        
+        return x_tensor, sample_label
+
+    def __len__(self):
+        return len(self.valid_indices)
+
+
+def epilepsy_data_generator(data_dir, batch_size, seq_length=1, stride=1):
+    """
+    为Bonn数据集生成数据加载器
+    """
+    dataset = EpilepsyDataset(data_dir, seq_length, stride)
+    
+    # 计算类别权重
+    all_ys = dataset.y_data.numpy().tolist()
+    num_classes = len(np.unique(all_ys))
+    counts = [all_ys.count(i) for i in range(num_classes)]
+
+    data_loader = torch.utils.data.DataLoader(dataset=dataset,
+                                             batch_size=batch_size,
+                                             shuffle=True,
+                                             drop_last=False,
+                                             num_workers=4)
+
+    return data_loader, counts

@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
+import logging # 添加导入
 
 
 def weighted_CrossEntropyLoss(output, target, classes_weights, device):
@@ -490,4 +491,293 @@ def sequential_focal_loss(output, target, classes_weights, device, gamma=2.0, la
     )
     
     return criterion(output, target)
+
+
+def contrastive_loss(projections, temperature=0.5):
+    """
+    计算对比学习损失（InfoNCE/NT-Xent）
+    
+    参数:
+        projections: 投影特征 [batch_size, seq_len, proj_dim]
+        temperature: 温度参数，调整相似度分布的锐度
+    
+    返回:
+        对比学习损失
+    """
+    # 重塑为 [batch_size*seq_len, proj_dim]
+    batch_size, seq_len, proj_dim = projections.shape
+    projections = projections.reshape(-1, proj_dim)
+    
+    # 归一化投影向量
+    projections = F.normalize(projections, p=2, dim=1)
+    
+    # 计算相似度矩阵
+    similarity_matrix = torch.matmul(projections, projections.T) / temperature
+    
+    # 掩码对角线（自相似度）
+    mask = torch.eye(batch_size * seq_len, dtype=torch.bool, device=projections.device)
+    similarity_matrix.masked_fill_(mask, -float('inf'))
+    
+    # 创建用于识别同一序列不同时间步的正样本掩码
+    # 对于每个(i,j)，如果它们来自同一序列但不同时间步，则为正样本
+    pos_mask = torch.zeros_like(similarity_matrix, dtype=torch.bool)
+    for i in range(batch_size):
+        start_idx = i * seq_len
+        end_idx = (i + 1) * seq_len
+        # 设置同一序列内的所有位置为正样本（除了自己与自己比较的对角线）
+        pos_mask[start_idx:end_idx, start_idx:end_idx] = True
+    
+    # 移除对角线（不把自己作为正样本）
+    pos_mask.masked_fill_(mask, False)
+    
+    # 应用正样本掩码，计算对比学习损失
+    logits = similarity_matrix.reshape(-1)
+    labels = pos_mask.reshape(-1).float()
+    
+    # 计算每个锚点的对比损失
+    # 注意：由于正样本是多个，我们使用交叉熵损失
+    # 对于每个锚点，其所有正样本都应该有较高的概率
+    logits_pos = similarity_matrix[pos_mask]
+    logits_neg = similarity_matrix[~pos_mask & ~mask.reshape_as(pos_mask)]
+    
+    # 使用InfoNCE损失
+    pos_term = -logits_pos.mean()  # 正样本相似度应该高
+    neg_term = torch.logsumexp(logits_neg.reshape(batch_size * seq_len, -1), dim=1).mean()  # 负样本相似度应该低
+    
+    loss = pos_term + neg_term
+    
+    return loss
+
+
+def combined_contrastive_classification_loss(output, target, classes_weights, device, 
+                                            lambda_contrast=0.3, temperature=0.5, 
+                                            gamma=2.0, label_smoothing=0.05,
+                                            n1_weight_multiplier=1.5, transition_weight=0.2):
+    """
+    结合分类损失和对比学习损失
+    
+    参数:
+        output: 模型输出的元组 (logits, projections, features)
+            - logits: 分类预测 [batch_size, seq_len, num_classes]
+            - projections: 投影特征 [batch_size, seq_len, proj_dim]
+            - features: 序列特征表示 [batch_size, seq_len, d_model]
+        target: 目标标签 [batch_size, seq_len]
+        classes_weights: 类别权重列表
+        device: 计算设备
+        lambda_contrast: 对比学习损失权重
+        temperature: 对比学习温度参数
+        gamma: focal损失聚焦参数
+        label_smoothing: 标签平滑系数
+        n1_weight_multiplier: N1类别权重倍增器
+        transition_weight: 转移约束权重
+    """
+    logits, projections, _ = output
+    
+    # 计算分类损失（使用序列focal损失）
+    class_loss = sequential_focal_loss(
+        logits, target, classes_weights, device, 
+        gamma=gamma, 
+        label_smoothing=label_smoothing,
+        n1_weight_multiplier=n1_weight_multiplier, 
+        n1_class_idx=1,
+        transition_weight=transition_weight
+    )
+    
+    # 计算对比学习损失
+    contrast_loss = contrastive_loss(projections, temperature=temperature)
+    
+    # 综合损失
+    total_loss = class_loss + lambda_contrast * contrast_loss
+    
+    return total_loss
+
+
+class CombinedContrastiveClassificationLoss(nn.Module):
+    """
+    结合分类损失和对比学习损失的类实现
+    
+    参数:
+        lambda_contrast: 对比学习损失权重
+        temperature: 对比学习温度参数
+        class_weights: 类别权重列表
+        gamma: focal损失聚焦参数
+        label_smoothing: 标签平滑系数
+        n1_weight_multiplier: N1类别权重倍增器
+        transition_weight: 转移约束权重
+        device: 计算设备
+    """
+    def __init__(self, lambda_contrast=0.3, temperature=0.5, class_weights=None,
+                 gamma=2.0, label_smoothing=0.05, n1_weight_multiplier=1.5,
+                 transition_weight=0.2, device=None):
+        super(CombinedContrastiveClassificationLoss, self).__init__()
+        self.lambda_contrast = lambda_contrast
+        self.temperature = temperature
+        self.class_weights = class_weights
+        self.gamma = gamma
+        self.label_smoothing = label_smoothing
+        self.n1_weight_multiplier = n1_weight_multiplier
+        self.transition_weight = transition_weight
+        self.device = device
+        
+        # 初始化序列focal损失
+        if class_weights is not None and device is not None:
+            self.focal_criterion = SequentialFocalLoss(
+                alpha=class_weights,
+                gamma=gamma,
+                label_smoothing=label_smoothing,
+                n1_weight_multiplier=n1_weight_multiplier,
+                transition_weight=transition_weight,
+                device=device
+            )
+        else:
+            self.focal_criterion = None
+    
+    def forward(self, output, target, classes_weights=None, device=None):
+        """
+        参数:
+            output: 模型输出的元组 (logits, projections, features)
+            target: 目标标签 [batch_size, seq_len]
+            classes_weights: 可选的类别权重
+            device: 可选的设备
+        """
+        device = device or self.device or target.device
+        logits, projections, _ = output
+        
+        # 计算分类损失
+        if self.focal_criterion is not None:
+            class_loss = self.focal_criterion(logits, target)
+        else:
+            # 使用函数接口
+            weights = classes_weights if classes_weights is not None else self.class_weights
+            class_loss = sequential_focal_loss(
+                logits, target, weights, device,
+                gamma=self.gamma,
+                label_smoothing=self.label_smoothing,
+                n1_weight_multiplier=self.n1_weight_multiplier,
+                transition_weight=self.transition_weight
+            )
+        
+        # 计算对比学习损失
+        contrast_loss = contrastive_loss(projections, temperature=self.temperature)
+        
+        # 综合损失
+        total_loss = class_loss + self.lambda_contrast * contrast_loss
+        
+        return total_loss
+
+
+# W: 0, N1: 1, N2: 2, N3: 3, REM: 4
+CLASS_IDX_W = 0
+CLASS_IDX_N1 = 1
+CLASS_IDX_N2 = 2
+CLASS_IDX_N3 = 3
+CLASS_IDX_REM = 4
+
+class TargetedMistakePenaltyLoss(nn.Module):
+    def __init__(self, base_loss_fn=None, class_weights=None, device=None,
+                 n2_to_n1_penalty=2.5, rem_to_n1_penalty=2.5, # 提高现有惩罚
+                 n2_to_w_penalty=4.0, n3_to_w_penalty=3.0, # 新增高惩罚
+                 n3_to_n2_penalty=2.0, rem_to_w_penalty=3.0, # 新增惩罚
+                 rem_to_n3_penalty=2.0, # 新增 REM 到 N3 的惩罚
+                 n3_to_rem_penalty=2.0, # 新增 N3 到 REM 的惩罚
+                 n1_to_rem_penalty=2.0, # 新增 N1 到 REM 的惩罚
+                 n2_to_rem_penalty=2.0): # 新增 N2 到 REM 的惩罚
+        super().__init__()
+        self.device = device
+        
+        if base_loss_fn is None:
+            if class_weights is not None:
+                self.class_weights_tensor = torch.tensor(class_weights, dtype=torch.float32)
+                if self.device:
+                    self.class_weights_tensor = self.class_weights_tensor.to(self.device)
+            else:
+                self.class_weights_tensor = None
+            self.base_loss_fn = nn.CrossEntropyLoss(weight=self.class_weights_tensor, reduction='none')
+        else:
+            self.base_loss_fn = base_loss_fn # User needs to ensure it has reduction='none'
+            self.class_weights_tensor = torch.tensor(class_weights, dtype=torch.float32).to(self.device if self.device else 'cpu') if class_weights is not None else None
+
+        self.n2_to_n1_penalty = n2_to_n1_penalty
+        self.rem_to_n1_penalty = rem_to_n1_penalty
+        self.n2_to_w_penalty = n2_to_w_penalty # 新增
+        self.n3_to_w_penalty = n3_to_w_penalty # 新增
+        self.n3_to_n2_penalty = n3_to_n2_penalty # 新增
+        self.rem_to_w_penalty = rem_to_w_penalty # 新增
+        self.rem_to_n3_penalty = rem_to_n3_penalty # 新增
+        self.n3_to_rem_penalty = n3_to_rem_penalty # 新增
+        self.n1_to_rem_penalty = n1_to_rem_penalty # 新增
+        self.n2_to_rem_penalty = n2_to_rem_penalty # 新增
+        
+        self.logger = logging.getLogger(self.__class__.__name__)
+        self.logger.info(f"Initialized TargetedMistakePenaltyLoss with: "
+                         f"n2_to_n1_penalty={self.n2_to_n1_penalty}, "
+                         f"rem_to_n1_penalty={self.rem_to_n1_penalty}, "
+                         f"n2_to_w_penalty={self.n2_to_w_penalty}, " # 新增
+                         f"n3_to_w_penalty={self.n3_to_w_penalty}, " # 新增
+                         f"n3_to_n2_penalty={self.n3_to_n2_penalty}, " # 新增
+                         f"rem_to_w_penalty={self.rem_to_w_penalty}, " # 新增
+                         f"rem_to_n3_penalty={self.rem_to_n3_penalty}, " # 新增
+                         f"n3_to_rem_penalty={self.n3_to_rem_penalty}, " # 新增
+                         f"n1_to_rem_penalty={self.n1_to_rem_penalty}, " # 新增
+                         f"n2_to_rem_penalty={self.n2_to_rem_penalty}, " # 新增
+                         f"base_loss_uses_weights: {self.class_weights_tensor is not None}")
+
+    def forward(self, outputs, targets):
+        current_device = self.device or outputs.device
+        
+        if isinstance(self.base_loss_fn, nn.CrossEntropyLoss):
+             # Ensure the internal CE loss is on the correct device if it was created in init
+            self.base_loss_fn = self.base_loss_fn.to(current_device)
+            if self.base_loss_fn.weight is not None:
+                 self.base_loss_fn.weight = self.base_loss_fn.weight.to(current_device)
+            per_sample_loss = self.base_loss_fn(outputs.to(current_device), targets.to(current_device))
+        elif callable(self.base_loss_fn) and not isinstance(self.base_loss_fn, nn.Module):
+            # Handle functional losses like weighted_CrossEntropyLoss
+            # These functions might take weights and device as arguments
+            try:
+                per_sample_loss = self.base_loss_fn(outputs.to(current_device), targets.to(current_device),
+                                                   classes_weights=self.class_weights_tensor.tolist() if self.class_weights_tensor is not None else None,
+                                                   device=current_device)
+            except TypeError: # If it does not take these args, call it simply
+                per_sample_loss = self.base_loss_fn(outputs.to(current_device), targets.to(current_device))
+        else: # For other nn.Module based losses passed externally
+            self.base_loss_fn = self.base_loss_fn.to(current_device) # Ensure module is on correct device
+            per_sample_loss = self.base_loss_fn(outputs.to(current_device), targets.to(current_device))
+
+        predicted_classes = torch.argmax(outputs, dim=1)
+        penalties = torch.ones_like(per_sample_loss, device=current_device, dtype=torch.float32)
+
+        n2_to_n1_mask = (targets == CLASS_IDX_N2) & (predicted_classes == CLASS_IDX_N1)
+        penalties[n2_to_n1_mask] = self.n2_to_n1_penalty
+
+        rem_to_n1_mask = (targets == CLASS_IDX_REM) & (predicted_classes == CLASS_IDX_N1)
+        penalties[rem_to_n1_mask] = self.rem_to_n1_penalty
+        
+        # 新增的特定错误惩罚
+        n2_to_w_mask = (targets == CLASS_IDX_N2) & (predicted_classes == CLASS_IDX_W)
+        penalties[n2_to_w_mask] = self.n2_to_w_penalty
+
+        n3_to_w_mask = (targets == CLASS_IDX_N3) & (predicted_classes == CLASS_IDX_W)
+        penalties[n3_to_w_mask] = self.n3_to_w_penalty
+
+        n3_to_n2_mask = (targets == CLASS_IDX_N3) & (predicted_classes == CLASS_IDX_N2)
+        penalties[n3_to_n2_mask] = self.n3_to_n2_penalty
+
+        rem_to_w_mask = (targets == CLASS_IDX_REM) & (predicted_classes == CLASS_IDX_W)
+        penalties[rem_to_w_mask] = self.rem_to_w_penalty
+
+        rem_to_n3_mask = (targets == CLASS_IDX_REM) & (predicted_classes == CLASS_IDX_N3)
+        penalties[rem_to_n3_mask] = self.rem_to_n3_penalty
+
+        n3_to_rem_mask = (targets == CLASS_IDX_N3) & (predicted_classes == CLASS_IDX_REM)
+        penalties[n3_to_rem_mask] = self.n3_to_rem_penalty
+
+        n1_to_rem_mask = (targets == CLASS_IDX_N1) & (predicted_classes == CLASS_IDX_REM)
+        penalties[n1_to_rem_mask] = self.n1_to_rem_penalty
+
+        n2_to_rem_mask = (targets == CLASS_IDX_N2) & (predicted_classes == CLASS_IDX_REM)
+        penalties[n2_to_rem_mask] = self.n2_to_rem_penalty
+        
+        penalized_loss = per_sample_loss * penalties
+        return penalized_loss.mean()
 

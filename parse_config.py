@@ -4,12 +4,12 @@ from pathlib import Path
 from functools import reduce, partial
 from operator import getitem
 from datetime import datetime
-from logger import setup_logging
+from logger.logger import setup_logging # 明确从 logger.logger 导入 setup_logging
 from utils import read_json, write_json
 
 
 class ConfigParser:
-    def __init__(self, config, fold_id, resume=None, modification=None, run_id=None):
+    def __init__(self, config, fold_id, resume=None, modification=None, run_id=None, save_dir_disabled=False):
         """
         class to parse configuration json file. Handles hyperparameters for training, initializations of modules, checkpoint saving
         and logging module.
@@ -17,38 +17,43 @@ class ConfigParser:
         :param resume: String, path to the checkpoint being loaded.
         :param modification: Dict keychain:value, specifying position values to be replaced from config dict.
         :param run_id: Unique Identifier for training processes. Used to save checkpoints and training log. Timestamp is being used as default
+        :param save_dir_disabled: Bool, if True, disables creation of save/log directories. Useful for inference or analysis.
         """
         # load config file and apply modification
         self._config = _update_config(config, modification)
         self.resume = resume
 
-        # set save_dir where trained model and log will be saved.
-        save_dir = Path(self.config['trainer']['save_dir'])
+        if save_dir_disabled:
+            self._save_dir = None
+            self._log_dir = None
+        else:
+            # set save_dir where trained model and log will be saved.
+            save_dir = Path(self.config['trainer']['save_dir'])
 
-        exper_name = self.config['name']
-        if run_id is None:  # use timestamp as default run-id
-            run_id = datetime.now().strftime('%d_%m_%Y_%H_%M_%S')
-        if fold_id is not None:
-            fold_ = "_fold" + str(fold_id)
-            run_id += fold_
-        self._save_dir = save_dir / exper_name / run_id
-        self._log_dir = save_dir / exper_name / run_id
+            exper_name = self.config['name']
+            if run_id is None:  # use timestamp as default run-id
+                run_id = datetime.now().strftime('%d_%m_%Y_%H_%M_%S')
+            if fold_id is not None:
+                fold_ = "_fold" + str(fold_id)
+                run_id += fold_
+            self._save_dir = save_dir / exper_name / run_id
+            self._log_dir = save_dir / exper_name / run_id
 
-        # make directory for saving checkpoints and log.
-        exist_ok = run_id == ''
-        self.save_dir.mkdir(parents=True, exist_ok=exist_ok)
-        #self.log_dir.mkdir(parents=True, exist_ok=exist_ok)
+            # make directory for saving checkpoints and log.
+            exist_ok = run_id == ''
+            self.save_dir.mkdir(parents=True, exist_ok=exist_ok)
+            #self.log_dir.mkdir(parents=True, exist_ok=exist_ok)
 
-        # save updated config file to the checkpoint dir
-        write_json(self.config, self.save_dir / 'config.json')
+            # save updated config file to the checkpoint dir
+            write_json(self.config, self.save_dir / 'config.json')
 
-        # configure logging module
-        setup_logging(self.log_dir)
-        self.log_levels = {
-            0: logging.WARNING,
-            1: logging.INFO,
-            2: logging.DEBUG
-        }
+            # configure logging module
+            if not save_dir_disabled:
+                self.log_levels = {
+                    0: logging.WARNING,
+                    1: logging.INFO,
+                    2: logging.DEBUG
+                }
 
     @classmethod
     def from_args(cls, args, fold_id, options=''):
@@ -163,3 +168,21 @@ def _set_by_path(tree, keys, value):
 def _get_by_path(tree, keys):
     """Access a nested object in tree by sequence of keys."""
     return reduce(getitem, keys, tree)
+
+if __name__ == '__main__':
+    import argparse
+    parser = argparse.ArgumentParser(description='PyTorch Template')
+    parser.add_argument('config', help='path to config file')
+    args = parser.parse_args()
+
+    config = read_json(Path(args.config))
+    print("Config file parsed successfully.")
+
+if __name__ == '__main__':
+    import argparse
+    parser = argparse.ArgumentParser(description='PyTorch Template')
+    parser.add_argument('config', help='path to config file')
+    args = parser.parse_args()
+
+    config = read_json(Path(args.config))
+    print("Config file parsed successfully.")

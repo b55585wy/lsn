@@ -1,0 +1,114 @@
+{
+  "name": "BioSleepX_Seq_Advanced_Mamba_NoTCE",
+  "n_gpu": 1,
+  "arch": {
+      "type": "BioSleepXSeq",
+      "args": {
+          "seq_length": 10,
+          "use_eog": true,
+          "use_fine_grained_gating": false,
+          "use_mea_in_fusion": true,
+          "use_memory_module": false,
+          "use_cross_epoch_attn": false,
+          "use_seq_tce": false,
+          "tce_N": 0,
+          "seq_tce_N": 0,
+          "use_augmentation": false,
+          "use_simplified_mamba": false,
+          "use_advanced_mamba": true,
+          "vmamba_d_state": 8,
+          "vmamba_ssm_ratio": 2.0,
+          "vmamba_dt_rank": "auto",
+          "vmamba_d_conv": 3,
+          "vmamba_conv_bias": true,
+          "vmamba_bias": false,
+          "vmamba_act_layer_str": "silu",
+          "vmamba_dropout": 0.6,
+          "vmamba_k_group_1d": 2,
+          "vmamba_dt_scale": 1.0,
+          "vmamba_dt_init_method": "random",
+          "vmamba_dt_min": 0.001,
+          "vmamba_dt_max": 0.1,
+          "vmamba_dt_init_floor": 0.0001,
+          "afr_reduced_cnn_size_config": 16,
+          "d_model_config": 80,
+          "pool_target_len_config": 80,
+          "use_gabor_conv": false,
+          "use_wavelet_pool": false,
+          "use_inception_block": true,
+          "inception_out_channels": 32,
+          "inception_branch_ratios": [
+              0.2,
+              0.2,
+              0.2,
+              0.15,
+              0.15,
+              0.1
+          ],
+          "inception_kernel_sizes": [
+              50,
+              15,
+              11,
+              7,
+              5,
+              3
+          ]
+      }
+  },
+  "data_loader": {
+      "type": "data_generator_np_sequence",
+      "args": {
+          "batch_size":128,
+          "shuffle": false,
+          "num_workers": 4,
+          "seq_length": 10,
+          "stride": 1,
+          "num_folds": 20
+      }
+  },
+  "optimizer": {
+      "type": "Adam",
+      "args": {
+          "lr": 0.0005,
+          "weight_decay": 0.001,
+          "amsgrad": true
+      }
+  },
+  "lr_scheduler": {
+      "type": "ReduceLROnPlateau",
+      "args": {
+          "mode": "max",
+          "factor": 0.5,
+          "patience": 5,
+          "verbose": true,
+          "min_lr": 1e-06
+      }
+  },
+  "loss": {
+      "type": "FocalLoss",
+      "args": {
+          "alpha": [
+              1.2,
+              2.5,
+              1.4,
+              1.5,
+              1.6
+          ],
+          "gamma": 2.0
+      }
+  },
+  "metrics": [
+      "accuracy",
+      "f1",
+      "kappa",
+      "transition_accuracy"
+  ],
+  "trainer": {
+      "epochs": 100,
+      "save_dir": "saved/sequential_model_advanced_mamba/",
+      "save_period": 10,
+      "verbosity": 2,
+      "monitor": "max val_f1",
+      "early_stop": 10
+  }
+}
